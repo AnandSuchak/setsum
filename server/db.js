@@ -10,10 +10,10 @@ let pgPool = null;
 // Initialize Database connection
 if (usePostgres) {
   const { Pool } = require('pg');
-  pgPool = new Pool({
-    connectionString: connectionString,
-    ssl: { rejectUnauthorized: false } // Required for Supabase / Vercel
-  });
+  const { parse } = require('pg-connection-string');
+  const pgConfig = parse(connectionString);
+  pgConfig.ssl = { rejectUnauthorized: false }; // Bypass self-signed certificate chain issue
+  pgPool = new Pool(pgConfig);
 } else {
   if (process.env.VERCEL) {
     throw new Error("Missing database connection string. Please configure DATABASE_URL or link Supabase in your Vercel Project Settings.");
