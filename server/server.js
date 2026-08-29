@@ -1,0 +1,696 @@
+const express = require('express');
+const cors = require('cors');
+const crypto = require('crypto');
+const path = require('path');
+const db = require('./db');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// Request logger middleware
+app.use((req, res, next) => {
+  console.log(`[Server Log] ${req.method} ${req.url}`);
+  next();
+});
+
+// Serve static files
+app.use(express.static(path.join(__dirname, '../web')));
+
+// Middleware to authenticate user session
+async function authenticate(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Session token required' });
+  }
+
+  try {
+    const session = await db.get(
+      `SELECT s.*, u.email, u.role, u.default_commission_rate, u.tax_year_start 
+       FROM user_sessions s 
+       JOIN users u ON s.user_id = u.id 
+       WHERE s.id = ?`,
+      [token]
+    );
+
+    if (!session) {
+      return res.status(401).json({ error: 'Invalid or expired session' });
+    }
+
+    req.user = {
+      id: session.user_id,
+      email: session.email,
+      role: session.role,
+      default_commission_rate: session.default_commission_rate,
+      tax_year_start: session.tax_year_start,
+    };
+
+    // Track active usage: update last_active_date if it's a new day
+    const today = new Date().toISOString().split('T')[0];
+    if (session.last_active_date !== today) {
+      await db.run(
+        'UPDATE user_sessions SET last_active_date = ? WHERE id = ?',
+        [today, token]
+      );
+    }
+
+    next();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database error during authentication' });
+  }
+}
+
+// Middleware for admin verification
+function requireAdmin(req, res, next) {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Access denied: Admin role required' });
+  }
+  next();
+}
+
+// Simple in-memory login brute-force rate limiter (SaaS cybersecurity best practice)
+const loginAttempts = {};
+
+function checkLoginRateLimit(email) {
+  const record = loginAttempts[email];
+  if (!record) return { isLocked: false };
+  const now = Date.now();
+  if (record.lockUntil > now) {
+    const minutesLeft = Math.ceil((record.lockUntil - now) / 60000);
+    return { isLocked: true, minutesLeft };
+  }
+  // Reset if time elapsed
+  if (record.lockUntil > 0 && record.lockUntil <= now) {
+    delete loginAttempts[email];
+  }
+  return { isLocked: false };
+}
+
+function recordFailedLogin(email) {
+  if (!loginAttempts[email]) {
+    loginAttempts[email] = { count: 0, lockUntil: 0 };
+  }
+  const record = loginAttempts[email];
+  record.count++;
+  if (record.count >= 5) {
+    record.lockUntil = Date.now() + 15 * 60 * 1000; // 15-minute lock
+    record.count = 0;
+  }
+}
+
+function clearFailedLogins(email) {
+  delete loginAttempts[email];
+}
+
+// --- AUTHENTICATION ENDPOINTS ---
+
+// Register
+app.post('/api/auth/signup', async (req, res) => {
+  const { email, password, default_commission_rate, tax_year_start } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  try {
+    const existing = await db.get('SELECT * FROM users WHERE email = ?', [email]);
+    if (existing) {
+      return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    const userId = crypto.randomUUID();
+    const passwordHash = db.hashPassword(password);
+    const commRate = default_commission_rate !== undefined ? default_commission_rate : 20.00;
+    const taxStart = tax_year_start || '04-06';
+
+    await db.run(
+      `INSERT INTO users (id, email, password_hash, default_commission_rate, tax_year_start, role)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [userId, email, passwordHash, commRate, taxStart, 'user']
+    );
+
+    // Create session token
+    const sessionId = crypto.randomUUID();
+    const today = new Date().toISOString().split('T')[0];
+    await db.run(
+      `INSERT INTO user_sessions (id, user_id, last_active_date) VALUES (?, ?, ?)`,
+      [sessionId, userId, today]
+    );
+
+    res.status(201).json({
+      token: sessionId,
+      user: { id: userId, email, role: 'user', default_commission_rate: commRate }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error during sign up' });
+  }
+});
+
+// Login
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  // Cyber security check: Rate Limiting
+  const rateLimit = checkLoginRateLimit(email);
+  if (rateLimit.isLocked) {
+    return res.status(429).json({ error: `Too many failed attempts. Account locked. Try again in ${rateLimit.minutesLeft} minutes.` });
+  }
+
+  try {
+    const user = await db.get('SELECT * FROM users WHERE email = ?', [email]);
+    if (!user) {
+      recordFailedLogin(email);
+      return res.status(400).json({ error: 'Invalid email or password' });
+    }
+
+    if (!db.verifyPassword(password, user.password_hash)) {
+      recordFailedLogin(email);
+      return res.status(400).json({ error: 'Invalid email or password' });
+    }
+
+    // Success: clear lock tracking
+    clearFailedLogins(email);
+
+    // Create session token
+    const sessionId = crypto.randomUUID();
+    const today = new Date().toISOString().split('T')[0];
+    await db.run(
+      `INSERT INTO user_sessions (id, user_id, last_active_date) VALUES (?, ?, ?)`,
+      [sessionId, user.id, today]
+    );
+
+    res.json({
+      token: sessionId,
+      user: { id: user.id, email: user.email, role: user.role, default_commission_rate: user.default_commission_rate }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error during login' });
+  }
+});
+
+// Get current user info
+app.get('/api/auth/me', authenticate, (req, res) => {
+  res.json({ user: req.user });
+});
+
+// --- PAY RATES ENDPOINTS ---
+
+app.get('/api/rates', async (req, res) => {
+  try {
+    const rates = await db.all('SELECT * FROM pay_rates ORDER BY name, shift_type');
+    res.json(rates);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch pay rates' });
+  }
+});
+
+// --- AGENCIES ENDPOINTS ---
+
+app.get('/api/agencies', authenticate, async (req, res) => {
+  try {
+    const agencies = await db.all('SELECT * FROM agencies WHERE user_id = ? ORDER BY name', [req.user.id]);
+    res.json(agencies);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch agencies' });
+  }
+});
+
+app.post('/api/agencies', authenticate, async (req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'Agency name is required' });
+  }
+
+  try {
+    const nameTrimmed = name.trim();
+    // Check if duplicate
+    const existing = await db.get('SELECT * FROM agencies WHERE user_id = ? AND name = ?', [req.user.id, nameTrimmed]);
+    if (existing) {
+      return res.json(existing);
+    }
+
+    const agencyId = crypto.randomUUID();
+    await db.run(
+      'INSERT INTO agencies (id, user_id, name) VALUES (?, ?, ?)',
+      [agencyId, req.user.id, nameTrimmed]
+    );
+    res.status(201).json({ id: agencyId, user_id: req.user.id, name: nameTrimmed });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to create agency' });
+  }
+});
+
+// --- SHIFTS ENDPOINTS ---
+
+app.get('/api/shifts', authenticate, async (req, res) => {
+  const { status } = req.query;
+  try {
+    let sql = 'SELECT s.*, a.name as agency_name FROM shifts s LEFT JOIN agencies a ON s.agency_id = a.id WHERE s.user_id = ?';
+    const params = [req.user.id];
+
+    if (status) {
+      sql += ' AND s.status = ?';
+      params.push(status);
+    }
+
+    sql += ' ORDER BY s.shift_date DESC, s.call_time DESC';
+    const shifts = await db.all(sql, params);
+    res.json(shifts);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch shifts' });
+  }
+});
+
+app.post('/api/shifts', authenticate, async (req, res) => {
+  const {
+    project_name, status, shift_date, call_time, wrap_time,
+    is_public_holiday, is_night_shift, gross_earnings,
+    agency_commission, vat, net_earnings, expected_payment_date,
+    notes, agency_id, rate_id
+  } = req.body;
+
+  if (!project_name || !status || !shift_date) {
+    return res.status(400).json({ error: 'Project name, status, and shift date are required' });
+  }
+
+  try {
+    const shiftId = crypto.randomUUID();
+    const gEarn = parseFloat(gross_earnings) || 0.00;
+    const comm = parseFloat(agency_commission) || 0.00;
+    const v = parseFloat(vat) || 0.00;
+    const net = parseFloat(net_earnings) || 0.00;
+
+    await db.run(
+      `INSERT INTO shifts (
+        id, user_id, agency_id, rate_id, project_name, status, shift_date,
+        call_time, wrap_time, is_public_holiday, is_night_shift,
+        gross_earnings, agency_commission, vat, net_earnings,
+        expected_payment_date, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        shiftId, req.user.id, agency_id || null, rate_id || null, project_name, status, shift_date,
+        call_time || null, wrap_time || null, is_public_holiday ? 1 : 0, is_night_shift ? 1 : 0,
+        gEarn, comm, v, net, expected_payment_date || null, notes || null
+      ]
+    );
+
+    const created = await db.get(
+      'SELECT s.*, a.name as agency_name FROM shifts s LEFT JOIN agencies a ON s.agency_id = a.id WHERE s.id = ?',
+      [shiftId]
+    );
+    res.status(201).json(created);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to log shift' });
+  }
+});
+
+app.put('/api/shifts/:id', authenticate, async (req, res) => {
+  const { id } = req.params;
+  const {
+    project_name, status, shift_date, call_time, wrap_time,
+    is_public_holiday, is_night_shift, gross_earnings,
+    agency_commission, vat, net_earnings, expected_payment_date,
+    notes, agency_id, rate_id
+  } = req.body;
+
+  if (!project_name || !status || !shift_date) {
+    return res.status(400).json({ error: 'Project name, status, and shift date are required' });
+  }
+
+  try {
+    const shift = await db.get('SELECT * FROM shifts WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    if (!shift) {
+      return res.status(404).json({ error: 'Shift not found' });
+    }
+
+    const gEarn = parseFloat(gross_earnings) || 0.00;
+    const comm = parseFloat(agency_commission) || 0.00;
+    const v = parseFloat(vat) || 0.00;
+    const net = parseFloat(net_earnings) || 0.00;
+
+    await db.run(
+      `UPDATE shifts SET 
+        project_name = ?, status = ?, shift_date = ?, call_time = ?, wrap_time = ?,
+        is_public_holiday = ?, is_night_shift = ?, gross_earnings = ?, 
+        agency_commission = ?, vat = ?, net_earnings = ?, 
+        expected_payment_date = ?, notes = ?, agency_id = ?, rate_id = ?,
+        updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND user_id = ?`,
+      [
+        project_name, status, shift_date, call_time || null, wrap_time || null,
+        is_public_holiday ? 1 : 0, is_night_shift ? 1 : 0, gEarn,
+        comm, v, net, expected_payment_date || null, notes || null, agency_id || null, rate_id || null,
+        id, req.user.id
+      ]
+    );
+
+    const updated = await db.get(
+      'SELECT s.*, a.name as agency_name FROM shifts s LEFT JOIN agencies a ON s.agency_id = a.id WHERE s.id = ?',
+      [id]
+    );
+    res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update shift' });
+  }
+});
+
+app.delete('/api/shifts/:id', authenticate, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await db.run('DELETE FROM shifts WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Shift not found' });
+    }
+    res.json({ message: 'Shift deleted successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete shift' });
+  }
+});
+
+// --- EXPENSES ENDPOINTS ---
+
+app.get('/api/expenses', authenticate, async (req, res) => {
+  try {
+    const expenses = await db.all('SELECT * FROM expenses WHERE user_id = ? ORDER BY date_incurred DESC', [req.user.id]);
+    res.json(expenses);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch expenses' });
+  }
+});
+
+app.post('/api/expenses', authenticate, async (req, res) => {
+  const { category, amount, date_incurred, shift_id } = req.body;
+  if (!category || amount === undefined || !date_incurred) {
+    return res.status(400).json({ error: 'Category, amount, and date incurred are required' });
+  }
+
+  try {
+    const expenseId = crypto.randomUUID();
+    const parsedAmount = parseFloat(amount) || 0.00;
+
+    await db.run(
+      `INSERT INTO expenses (id, user_id, shift_id, category, amount, date_incurred)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [expenseId, req.user.id, shift_id || null, category, parsedAmount, date_incurred]
+    );
+
+    const created = await db.get('SELECT * FROM expenses WHERE id = ?', [expenseId]);
+    res.status(201).json(created);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to create expense' });
+  }
+});
+
+app.delete('/api/expenses/:id', authenticate, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await db.run('DELETE FROM expenses WHERE id = ? AND user_id = ?', [id, req.user.id]);
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Expense not found' });
+    }
+    res.json({ message: 'Expense deleted successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete expense' });
+  }
+});
+
+// --- USER FEEDBACK ENDPOINTS ---
+
+app.post('/api/feedback', authenticate, async (req, res) => {
+  const { subject, message } = req.body;
+  if (!subject || !message) {
+    return res.status(400).json({ error: 'Subject and message are required' });
+  }
+
+  try {
+    const feedbackId = crypto.randomUUID();
+    await db.run(
+      'INSERT INTO feedback (id, user_id, subject, message) VALUES (?, ?, ?, ?)',
+      [feedbackId, req.user.id, subject, message]
+    );
+    res.status(201).json({ message: 'Feedback submitted successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to submit feedback' });
+  }
+});
+
+// --- DASHBOARD SUMMARY ENDPOINTS ---
+
+// Dynamic check for tax year matching standard UK 06 April start
+function getTaxYearRange(year, startMonthDay = '04-06') {
+  const [m, d] = startMonthDay.split('-').map(Number);
+  const startDate = `${year}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  const endDate = `${year + 1}-${String(m).padStart(2, '0')}-${String(d - 1).padStart(2, '0')}`;
+  return { startDate, endDate };
+}
+
+// Find tax year for a given date string YYYY-MM-DD
+function getTaxYearForDate(dateStr, startMonthDay = '04-06') {
+  const date = new Date(dateStr);
+  const year = date.getFullYear();
+  const [m, d] = startMonthDay.split('-').map(Number);
+  const taxCutoff = new Date(year, m - 1, d);
+
+  if (date >= taxCutoff) {
+    return year; // Tax year matches the starting year
+  } else {
+    return year - 1;
+  }
+}
+
+app.get('/api/dashboard/summary', authenticate, async (req, res) => {
+  const yearParam = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
+
+  try {
+    const userId = req.user.id;
+    const taxStartDay = req.user.tax_year_start || '04-06';
+
+    // 1. Net Earnings Total (all time)
+    const netTotalRow = await db.get(
+      'SELECT SUM(net_earnings) as total FROM shifts WHERE user_id = ?',
+      [userId]
+    );
+    const netEarningsTotal = netTotalRow.total || 0;
+
+    // 2. Pending Payments (status != Paid)
+    const pendingSumRow = await db.get(
+      "SELECT SUM(net_earnings) as total FROM shifts WHERE user_id = ? AND status != 'Paid'",
+      [userId]
+    );
+    const pendingTotal = pendingSumRow.total || 0;
+
+    const pendingShifts = await db.all(
+      `SELECT s.id, s.shift_date, s.project_name, s.net_earnings, a.name as agency_name 
+       FROM shifts s 
+       LEFT JOIN agencies a ON s.agency_id = a.id
+       WHERE s.user_id = ? AND s.status != 'Paid'
+       ORDER BY s.shift_date ASC`,
+      [userId]
+    );
+
+    // 3. Tax Year aggregation
+    const currentTaxYear = getTaxYearForDate(new Date().toISOString().split('T')[0], taxStartDay);
+    const { startDate: taxStart, endDate: taxEnd } = getTaxYearRange(currentTaxYear, taxStartDay);
+
+    const taxShiftsRow = await db.get(
+      `SELECT SUM(gross_earnings) as gross, SUM(agency_commission) as comm, SUM(vat) as vat 
+       FROM shifts 
+       WHERE user_id = ? AND shift_date >= ? AND shift_date <= ?`,
+      [userId, taxStart, taxEnd]
+    );
+
+    const taxExpensesRow = await db.get(
+      `SELECT SUM(amount) as expenses 
+       FROM expenses 
+       WHERE user_id = ? AND date_incurred >= ? AND date_incurred <= ?`,
+      [userId, taxStart, taxEnd]
+    );
+
+    const grossEarnings = taxShiftsRow.gross || 0;
+    const totalExpenses = taxExpensesRow.expenses || 0;
+    const commSub = taxShiftsRow.comm || 0;
+    const vatSub = taxShiftsRow.vat || 0;
+    // Net profit = Gross - Expenses - Commission - VAT
+    const netProfit = grossEarnings - totalExpenses - commSub - vatSub;
+
+    // 4. Monthly bar chart of net earnings for the requested calendar year
+    // Setup array for Jan - Dec
+    const monthlyEarnings = Array(12).fill(0);
+    const startDateYear = `${yearParam}-01-01`;
+    const endDateYear = `${yearParam}-12-31`;
+
+    const monthlyData = await db.all(
+      `SELECT shift_date, net_earnings 
+       FROM shifts 
+       WHERE user_id = ? AND shift_date >= ? AND shift_date <= ?`,
+      [userId, startDateYear, endDateYear]
+    );
+
+    monthlyData.forEach(row => {
+      const monthIndex = new Date(row.shift_date).getMonth(); // 0-11
+      if (monthIndex >= 0 && monthIndex < 12) {
+        monthlyEarnings[monthIndex] += row.net_earnings;
+      }
+    });
+
+    res.json({
+      netEarningsTotal,
+      pendingTotal,
+      pendingShifts,
+      taxYear: {
+        label: `${String(currentTaxYear).slice(-2)}/${String(currentTaxYear + 1).slice(-2)}`,
+        startDate: taxStart,
+        endDate: taxEnd,
+        gross: grossEarnings,
+        expenses: totalExpenses,
+        net: netProfit
+      },
+      chartData: {
+        year: yearParam,
+        months: monthlyEarnings
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to compile dashboard summary' });
+  }
+});
+
+// Tax Exporter API
+app.get('/api/dashboard/tax-summary', authenticate, async (req, res) => {
+  const { start_date, end_date } = req.query;
+  if (!start_date || !end_date) {
+    return res.status(400).json({ error: 'Start date and end date are required' });
+  }
+
+  try {
+    const userId = req.user.id;
+
+    // Shifts in range
+    const shiftsStats = await db.get(
+      `SELECT SUM(gross_earnings) as gross, SUM(agency_commission) as comm, SUM(vat) as vat 
+       FROM shifts 
+       WHERE user_id = ? AND shift_date >= ? AND shift_date <= ?`,
+      [userId, start_date, end_date]
+    );
+
+    // Expenses in range
+    const expensesStats = await db.get(
+      `SELECT SUM(amount) as expenses 
+       FROM expenses 
+       WHERE user_id = ? AND date_incurred >= ? AND date_incurred <= ?`,
+      [userId, start_date, end_date]
+    );
+
+    const gross = shiftsStats.gross || 0;
+    const comm = shiftsStats.comm || 0;
+    const vat = shiftsStats.vat || 0;
+    const expenses = expensesStats.expenses || 0;
+    const netProfit = gross - expenses - comm - vat;
+
+    res.json({
+      dateRange: { start: start_date, end: end_date },
+      gross,
+      expenses,
+      commission: comm,
+      vat,
+      netProfit
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to generate tax summary export' });
+  }
+});
+
+// --- ADMIN ENDPOINTS (Role-Protected) ---
+
+// Admin panel dashboard statistics
+app.get('/api/admin/stats', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+
+    // Total Users
+    const usersCount = await db.get('SELECT COUNT(*) as count FROM users');
+
+    // New Users today
+    const newUsers = await db.get(
+      'SELECT COUNT(*) as count FROM users WHERE date(created_at) = ?',
+      [today]
+    );
+
+    // Daily Active Users (DAU)
+    const dau = await db.get(
+      'SELECT COUNT(DISTINCT user_id) as count FROM user_sessions WHERE last_active_date = ?',
+      [today]
+    );
+
+    // List of Users
+    const userList = await db.all(
+      'SELECT id, email, role, created_at FROM users ORDER BY created_at DESC'
+    );
+
+    res.json({
+      stats: {
+        totalUsers: usersCount.count,
+        newUsersToday: newUsers.count,
+        dailyActiveUsers: dau.count,
+      },
+      users: userList
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to retrieve admin stats' });
+  }
+});
+
+// Admin panel view complaints and feedback logs
+app.get('/api/admin/feedback', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const list = await db.all(
+      `SELECT f.*, u.email 
+       FROM feedback f 
+       JOIN users u ON f.user_id = u.id 
+       ORDER BY f.created_at DESC`
+    );
+    res.json(list);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to retrieve feedback logs' });
+  }
+});
+
+// Serve frontend SPA fallback
+app.get('/*splat', (req, res) => {
+  res.sendFile(path.join(__dirname, '../web', 'index.html'));
+});
+
+// Initialize database tables, then start listening
+const PORT = process.env.PORT || 3000;
+db.initDb()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`[SetSum Backend] Running at http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('[SetSum Backend] Failed to initialize DB:', err);
+    process.exit(1);
+  });

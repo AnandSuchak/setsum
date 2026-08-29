@@ -1,0 +1,19 @@
+{
+  "name": "setsum",
+  "version": "1.0.0",
+  "description": "SetSum Freelance Earnings & Shift Tracker (AI-Ready SaaS)",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "mcp": "node mcp/mcp-server.js",
+    "test": "node server/verify.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "sqlite3": "^5.1.7",
+    "uuid": "^10.0.0"
+  },
+  "license": "ISC",
+  "type": "commonjs"
+}

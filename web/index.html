@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SetSum - Freelance Earnings & Shift Tracker</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- FontAwesome for Premium Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Full Desktop Animated Gradient Background -->
+  <div class="desktop-bg">
+    <div class="glow-orb orb-1"></div>
+    <div class="glow-orb orb-2"></div>
+    
+    <!-- 1. AUTHENTICATION CONTAINER (Centered Desktop Layout) -->
+    <div id="screen-auth" class="auth-container active">
+      <div class="auth-card-wrapper">
+        <div class="auth-branding-side">
+          <div class="app-logo">
+            <i class="fa-solid fa-calculator-combined logo-icon"></i>
+            <h1>SetSum</h1>
+          </div>
+          <p class="tagline">Freelance Earnings & Shift Tracker</p>
+          <div class="branding-visual-features">
+            <div class="feature-item">
+              <i class="fa-regular fa-calendar-check"></i>
+              <span>Interactive Timesheet & Calendar Scheduling</span>
+            </div>
+            <div class="feature-item">
+              <i class="fa-solid fa-chart-line"></i>
+              <span>Real-Time Union Rates & Earnings Analytics</span>
+            </div>
+            <div class="feature-item">
+              <i class="fa-solid fa-robot"></i>
+              <span>AI-Ready Relational Database & MCP Server Integration</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="auth-form-side">
+          <!-- Sign In Form -->
+          <div id="form-signin" class="auth-form-card active">
+            <h2>Welcome Back</h2>
+            <p class="subtitle">Access your shift schedule and pay metrics</p>
+            
+            <div class="input-group">
+              <label for="signin-email">Email Address</label>
+              <div class="input-wrapper">
+                <i class="fa-regular fa-envelope input-icon"></i>
+                <input type="email" id="signin-email" placeholder="name@example.com" required>
+              </div>
+            </div>
+
+            <div class="input-group">
+              <label for="signin-password">Password</label>
+              <div class="input-wrapper">
+                <i class="fa-solid fa-lock input-icon"></i>
+                <input type="password" id="signin-password" placeholder="••••••••" required>
+              </div>
+            </div>
+
+            <button id="btn-signin" class="btn-primary">
+              <span>Sign In</span>
+              <i class="fa-solid fa-arrow-right"></i>
+            </button>
+
+            <div class="divider"><span>or continue with</span></div>
+
+            <div class="oauth-buttons">
+              <button class="btn-oauth apple" onclick="alert('OAuth login is in sandbox mode')">
+                <i class="fa-brands fa-apple"></i>
+                <span>Apple</span>
+              </button>
+              <button class="btn-oauth google" onclick="alert('OAuth login is in sandbox mode')">
+                <i class="fa-brands fa-google"></i>
+                <span>Google</span>
+              </button>
+            </div>
+
+            <p class="auth-toggle-text">
+              Don't have an account? <span id="toggle-to-signup" class="link-span">Sign Up</span>
+            </p>
+          </div>
+
+          <!-- Sign Up Form -->
+          <div id="form-signup" class="auth-form-card">
+            <h2>Create Account</h2>
+            <p class="subtitle">Start tracking your freelance earnings today</p>
+
+            <div class="input-group">
+              <label for="signup-email">Email Address</label>
+              <div class="input-wrapper">
+                <i class="fa-regular fa-envelope input-icon"></i>
+                <input type="email" id="signup-email" placeholder="name@example.com" required>
+              </div>
+            </div>
+
+            <div class="input-group">
+              <label for="signup-password">Password</label>
+              <div class="input-wrapper">
+                <i class="fa-solid fa-lock input-icon"></i>
+                <input type="password" id="signup-password" placeholder="••••••••" required>
+              </div>
+            </div>
+
+            <div class="input-row">
+              <div class="input-group">
+                <label for="signup-comm">Default Commission %</label>
+                <div class="input-wrapper">
+                  <input type="number" id="signup-comm" value="20" min="0" max="100">
+                </div>
+              </div>
+              <div class="input-group">
+                <label for="signup-tax-start">Tax Year Start</label>
+                <div class="input-wrapper">
+                  <input type="text" id="signup-tax-start" value="04-06" placeholder="MM-DD">
+                </div>
+              </div>
+            </div>
+
+            <button id="btn-signup" class="btn-primary">
+              <span>Sign Up</span>
+              <i class="fa-solid fa-user-plus"></i>
+            </button>
+
+            <p class="auth-toggle-text">
+              Already have an account? <span id="toggle-to-signin" class="link-span">Sign In</span>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. MAIN DESKTOP APPLICATION PANEL -->
+    <div id="screen-app" class="app-layout-container">
+      
+      <!-- Collapsible Left Sidebar -->
+      <aside class="app-sidebar">
+        <div class="sidebar-brand">
+          <div class="brand-logo-name">
+            <i class="fa-solid fa-calculator-combined logo-icon"></i>
+            <h2 class="brand-name">SetSum</h2>
+          </div>
+          <button id="btn-toggle-sidebar" class="btn-toggle-sidebar" title="Toggle Sidebar">
+            <i class="fa-solid fa-chevron-left" id="sidebar-toggle-icon"></i>
+          </button>
+        </div>
+        
+        <!-- Primary Action Button -->
+        <button class="btn-sidebar-action" id="btn-open-log-modal">
+          <i class="fa-solid fa-plus"></i>
+          <span>Log New Shift</span>
+        </button>
+
+        <nav class="sidebar-menu">
+          <button class="nav-item active" data-view="calendar">
+            <i class="fa-regular fa-calendar-days"></i>
+            <span>Timesheet Calendar</span>
+          </button>
+          <button class="nav-item" data-view="calculator">
+            <i class="fa-solid fa-calculator"></i>
+            <span>Earnings Calculator</span>
+          </button>
+          <button class="nav-item" data-view="summary">
+            <i class="fa-solid fa-chart-simple"></i>
+            <span>Earnings Summary</span>
+          </button>
+          <button class="nav-item" data-view="profile">
+            <i class="fa-regular fa-user"></i>
+            <span>Account & Exporter</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="sidebar-user-info">
+            <span class="user-label">Active User</span>
+            <span class="user-val" id="header-user-email">user@setsum.co.uk</span>
+          </div>
+          <button id="btn-logout" class="btn-logout-sidebar" title="Log Out">
+            <i class="fa-solid fa-right-from-bracket"></i>
+            <span>Sign Out</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- Main Workspace Frame -->
+      <main class="app-main-workspace">
+
+        <!-- VIEW A: TIMESHEET CALENDAR VIEW -->
+        <div id="view-calendar" class="app-view active">
+          <div class="view-header">
+            <div>
+              <h2>Timesheet Calendar</h2>
+              <p>Manage your scheduling, shift records, and statuses</p>
+            </div>
+            <!-- Filter Toggle Bar -->
+            <div class="filter-toggle-bar">
+              <span class="filter-label">Filter:</span>
+              <button class="filter-chip active" data-status="all">All</button>
+              <button class="filter-chip pencilled" data-status="Pencilled">Pencilled</button>
+              <button class="filter-chip booked" data-status="Booked">Booked</button>
+              <button class="filter-chip paid" data-status="Paid">Paid</button>
+              <button class="filter-chip unavailable" data-status="Unavailable">Unavailable</button>
+            </div>
+          </div>
+
+          <div class="calendar-view-layout">
+            <!-- Calendar Card -->
+            <div class="glass-card calendar-card">
+              <div class="calendar-header">
+                <button id="btn-cal-prev" class="btn-cal-nav"><i class="fa-solid fa-chevron-left"></i></button>
+                <span id="calendar-month-year" class="calendar-title">August 2026</span>
+                <button id="btn-cal-next" class="btn-cal-nav"><i class="fa-solid fa-chevron-right"></i></button>
+              </div>
+              <div class="calendar-weekdays">
+                <div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div><div>Sun</div>
+              </div>
+              <div id="calendar-grid" class="calendar-grid">
+                <!-- Days injected by JS -->
+              </div>
+            </div>
+
+            <!-- Contextual Shifts Panel -->
+            <div class="shift-context-section glass-card">
+              <h3>Selected Date Bookings</h3>
+              <div id="calendar-shift-list" class="shift-context-list">
+                <!-- Shifts injected by JS -->
+                <div class="empty-state">
+                  <i class="fa-regular fa-calendar-minus"></i>
+                  <p>No shifts logged for this date.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- VIEW B: EARNINGS CALCULATOR -->
+        <div id="view-calculator" class="app-view">
+          <div class="view-header">
+            <h2>Earnings Calculator</h2>
+            <p>Compute wages, overtime, and commissions dynamically based on standard agreements</p>
+          </div>
+
+          <div class="calculator-view-layout">
+            <!-- Input Form -->
+            <div class="glass-card calc-card">
+              <h3 class="calc-card-title">Agreement & Hours</h3>
+              
+              <div class="calc-row">
+                <div class="calc-group">
+                  <label for="calc-rate-select">Predefined Union Rates</label>
+                  <select id="calc-rate-select" class="pill-select">
+                    <option value="custom">Flat Rate (Model/Actor)</option>
+                  </select>
+                </div>
+                <div class="calc-group">
+                  <label for="calc-call-time">Call Time</label>
+                  <input type="time" id="calc-call-time" value="06:15" class="pill-input">
+                </div>
+              </div>
+
+              <div class="calc-row">
+                <div class="calc-group">
+                  <label id="calc-rate-label" for="calc-base-amount">Flat Rate Amount (£)</label>
+                  <input type="number" id="calc-base-amount" value="100.00" step="0.01" class="pill-input">
+                </div>
+                <div class="calc-group">
+                  <label for="calc-wrap-time">Wrap Time</label>
+                  <input type="time" id="calc-wrap-time" value="18:02" class="pill-input">
+                </div>
+              </div>
+
+              <div class="calc-row">
+                <div class="calc-group">
+                  <label for="calc-supp-fees">Supplementary Fees (£)</label>
+                  <input type="number" id="calc-supp-fees" value="23.00" step="0.01" class="pill-input">
+                </div>
+                <div class="calc-group">
+                  <label for="calc-meal-allow">Meal Allowance & Penalties (£)</label>
+                  <input type="number" id="calc-meal-allow" value="23.38" step="0.01" class="pill-input">
+                </div>
+              </div>
+
+              <div class="calc-row">
+                <div class="calc-group">
+                  <label for="calc-travel-allow">Travel Allowance (£)</label>
+                  <input type="number" id="calc-travel-allow" value="22.54" step="0.01" class="pill-input">
+                </div>
+                <div class="calc-group">
+                  <label for="calc-holiday-pay">Holiday Pay (£)</label>
+                  <input type="number" id="calc-holiday-pay" value="13.42" step="0.01" class="pill-input">
+                </div>
+              </div>
+
+              <div class="calc-row">
+                <div class="calc-group">
+                  <label for="calc-comm-pct">Agency Commission %</label>
+                  <input type="number" id="calc-comm-pct" value="20" class="pill-input">
+                </div>
+                <div class="calc-group">
+                  <label for="calc-add-payment">Additional Payment (£)</label>
+                  <input type="number" id="calc-add-payment" value="0.00" step="0.01" class="pill-input">
+                </div>
+              </div>
+
+              <div class="calc-checkbox-row">
+                <label class="calc-checkbox-container">
+                  <input type="checkbox" id="calc-is-holiday">
+                  <span class="checkmark"></span>
+                  Public Holiday Shift
+                </label>
+                <label class="calc-checkbox-container">
+                  <input type="checkbox" id="calc-is-night">
+                  <span class="checkmark"></span>
+                  Night Shoot
+                </label>
+              </div>
+
+              <div class="calc-actions">
+                <button id="btn-calc-reset" class="btn-calc-secondary">
+                  <i class="fa-solid fa-arrow-rotate-left"></i>
+                  <span>Reset Calculator</span>
+                </button>
+                <button id="btn-calc-compute" class="btn-calc-primary">
+                  <i class="fa-solid fa-calculator"></i>
+                  <span>Run Calculations</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Output Display -->
+            <div class="glass-card calc-result-card">
+              <h3 class="calc-card-title">Earnings Breakdown</h3>
+              
+              <div class="calc-result-display">
+                <span class="result-label">Estimated Net Income:</span>
+                <div class="result-amount-wrapper" id="calc-toggle-breakdown" style="cursor: pointer;">
+                  <span class="result-symbol">£</span>
+                  <span id="calc-net-total">229.66</span>
+                  <i class="fa-solid fa-chevron-down result-chevron"></i>
+                </div>
+              </div>
+
+              <div id="calc-breakdown-drawer" class="calc-breakdown-panel" style="display: flex;">
+                <div class="breakdown-item">
+                  <span>Base Rate Allocation:</span>
+                  <span id="breakdown-base">£0.00</span>
+                </div>
+                <div class="breakdown-item">
+                  <span>Overtime Accrued:</span>
+                  <span id="breakdown-ot">£0.00</span>
+                </div>
+                <div class="breakdown-item">
+                  <span>Standard Holiday Pay Added:</span>
+                  <span id="breakdown-holiday">£0.00</span>
+                </div>
+                <div class="breakdown-item">
+                  <span>Allowances & Supplementary Fees:</span>
+                  <span id="breakdown-allowances">£0.00</span>
+                </div>
+                <div class="breakdown-item gross">
+                  <span>Total Calculated Gross:</span>
+                  <span id="breakdown-gross">£0.00</span>
+                </div>
+                <div class="breakdown-item deduction">
+                  <span>Agency Commission Deducted:</span>
+                  <span id="breakdown-comm">-£0.00</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- VIEW C: SUMMARY / METRICS DASHBOARD -->
+        <div id="view-summary" class="app-view">
+          <div class="view-header">
+            <h2>Financial Dashboard</h2>
+            <p>Track totals, analyze trends, and audit pending employer payouts</p>
+          </div>
+
+          <!-- Top KPI Grid -->
+          <div class="summary-cards-grid">
+            <div class="glass-card metric-card primary">
+              <div class="metric-info">
+                <span class="metric-label">Net Earnings Total <i class="fa-solid fa-info-circle tooltip-trigger" onclick="alert('Net earnings sum of all shifts logged.')"></i></span>
+                <h3 id="dash-net-total">£36,348</h3>
+              </div>
+              <button class="btn-pill-small" onclick="alert('Agency breakdown stats loaded.')">Agency Breakdown</button>
+            </div>
+            
+            <div id="btn-open-pending-modal" class="glass-card metric-card secondary-interactive">
+              <div class="metric-info">
+                <span class="metric-label">Pending Payments</span>
+                <h3 id="dash-pending-total">£1,592</h3>
+              </div>
+              <span class="action-hint">Audit Pending Jobs <i class="fa-solid fa-chevron-right"></i></span>
+            </div>
+
+            <div class="glass-card metric-card tax-quick-info">
+              <div class="metric-info">
+                <span class="metric-label">Tax Year <strong id="tax-year-label">24/25</strong></span>
+                <div class="quick-tax-row">
+                  <div>Gross: <strong id="tax-gross-val">£26,238.00</strong></div>
+                  <div>Expenses: <strong id="tax-exp-val">£5,247.60</strong></div>
+                </div>
+              </div>
+              <span class="quick-tax-profit">Net Profit: <strong id="tax-net-val">£20,990.40</strong></span>
+            </div>
+          </div>
+
+          <!-- Mid section: Graphs and Tax aggregations -->
+          <div class="summary-details-grid">
+            <!-- Earnings Graph Card -->
+            <div class="glass-card chart-card">
+              <div class="chart-header">
+                <h4>Monthly Net Profit Graph</h4>
+                <div class="year-selector">
+                  <button id="btn-chart-prev" class="btn-select-arrow"><i class="fa-solid fa-chevron-left"></i></button>
+                  <span id="chart-selected-year">2026</span>
+                  <button id="btn-chart-next" class="btn-select-arrow"><i class="fa-solid fa-chevron-right"></i></button>
+                </div>
+              </div>
+              <div class="canvas-container">
+                <canvas id="earningsChart" height="240"></canvas>
+              </div>
+            </div>
+
+            <!-- Actions Panel -->
+            <div class="glass-card dashboard-actions-card">
+              <h4>Exporter & Share Operations</h4>
+              <p class="panel-desc">Quick shortcuts to audit, file, and download reports.</p>
+              
+              <div class="dashboard-shortcut-buttons">
+                <button id="btn-go-export" class="btn-dashboard-shortcut primary">
+                  <i class="fa-solid fa-file-invoice-dollar"></i>
+                  <div>
+                    <strong>Tax Exporter Tool</strong>
+                    <span>Extract profit reports by date range</span>
+                  </div>
+                </button>
+                <button id="btn-share-tax" class="btn-dashboard-shortcut" onclick="alert('Tax statement copied to clipboard.')">
+                  <i class="fa-solid fa-share-nodes"></i>
+                  <div>
+                    <strong>Share Metrics</strong>
+                    <span>Copy summary cards info</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- VIEW D: PROFILE / SETTINGS & FEEDBACK / ADMIN PANEL -->
+        <div id="view-profile" class="app-view">
+          <div class="view-header">
+            <h2>Account & Platform Settings</h2>
+            <p>Generate tax statements, submit suggestions, and access administration</p>
+          </div>
+
+          <!-- Admin Entry Card (Displayed only for Admin accounts) -->
+          <div id="admin-entry-card" class="glass-card admin-alert-card hidden">
+            <div class="admin-icon-box">
+              <i class="fa-solid fa-shield-halved"></i>
+            </div>
+            <div class="admin-desc">
+              <h4>Administrator Control Panel</h4>
+              <p>Monitor user registers, check Daily Active Users (DAU), and view feedback logs.</p>
+              <button id="btn-enter-admin" class="btn-pill-admin">Enter Admin Workspace</button>
+            </div>
+          </div>
+
+          <div class="profile-view-layout">
+            <!-- Tax Exporter Form Card -->
+            <div class="glass-card profile-card" id="tax-exporter-section">
+              <h3><i class="fa-solid fa-file-invoice-dollar icon-prefix"></i> Tax Summary Exporter</h3>
+              <p class="section-desc">Aggregate your totals for a custom date range</p>
+              
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="export-start-date">Start Date</label>
+                  <input type="date" id="export-start-date" class="pill-input">
+                </div>
+                <div class="form-group">
+                  <label for="export-end-date">End Date</label>
+                  <input type="date" id="export-end-date" class="pill-input">
+                </div>
+              </div>
+
+              <button id="btn-run-export" class="btn-primary">
+                <i class="fa-solid fa-arrows-spin load-spinner hidden" id="export-spinner"></i>
+                <span>Generate Aggregated Report</span>
+              </button>
+
+              <div id="export-result-box" class="export-result-box hidden">
+                <h4>Report Calculations</h4>
+                <div class="export-row">
+                  <span>Gross Earnings:</span>
+                  <strong id="exp-res-gross">£0.00</strong>
+                </div>
+                <div class="export-row">
+                  <span>Expenses Deducted:</span>
+                  <strong id="exp-res-exp" class="deduction">-£0.00</strong>
+                </div>
+                <div class="export-row">
+                  <span>Agency Commissions:</span>
+                  <strong id="exp-res-comm" class="deduction">-£0.00</strong>
+                </div>
+                <div class="export-row">
+                  <span>VAT Paid:</span>
+                  <strong id="exp-res-vat" class="deduction">-£0.00</strong>
+                </div>
+                <div class="export-row total">
+                  <span>Final Net Profit:</span>
+                  <strong id="exp-res-net" class="profit">£0.00</strong>
+                </div>
+              </div>
+            </div>
+
+            <!-- Submit Feedback Card -->
+            <div class="glass-card profile-card">
+              <h3><i class="fa-solid fa-comments icon-prefix"></i> App Feedback & Complaints</h3>
+              <p class="section-desc">Have a complaint or suggestion? Let the administrators know.</p>
+              
+              <div class="form-group">
+                <label for="feedback-subject">Subject</label>
+                <input type="text" id="feedback-subject" placeholder="e.g., Bug with calendar, Rate discrepancy" class="pill-input">
+              </div>
+
+              <div class="form-group">
+                <label for="feedback-message">Message Details</label>
+                <textarea id="feedback-message" placeholder="Provide detailed comments here..." class="pill-textarea"></textarea>
+              </div>
+
+              <button id="btn-submit-feedback" class="btn-secondary">
+                <span>Submit Feedback Ticket</span>
+                <i class="fa-regular fa-paper-plane"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- VIEW E: ADMIN CONTROL PANEL (Switched via enter-admin button) -->
+        <div id="view-admin" class="app-view">
+          <div class="admin-header-row">
+            <button id="btn-exit-admin" class="btn-back-admin"><i class="fa-solid fa-chevron-left"></i> Back to Settings</button>
+            <h2>Admin Control Center</h2>
+          </div>
+
+          <!-- Analytics Stats Row -->
+          <div class="admin-stats-grid">
+            <div class="admin-stat-card">
+              <span class="label">Total Registered Users</span>
+              <h3 id="admin-stat-total-users">0</h3>
+            </div>
+            <div class="admin-stat-card">
+              <span class="label">New Registrations Today</span>
+              <h3 id="admin-stat-new-users">0</h3>
+            </div>
+            <div class="admin-stat-card">
+              <span class="label">Daily Active Users (DAU)</span>
+              <h3 id="admin-stat-dau">0</h3>
+            </div>
+          </div>
+
+          <div class="admin-view-layout">
+            <!-- Registered Users List Section -->
+            <div class="glass-card admin-section-card">
+              <h3>Registered User Log</h3>
+              <div class="admin-table-wrapper">
+                <table class="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Email Address</th>
+                      <th>Role</th>
+                      <th>Created Date</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-users-table-body">
+                    <!-- Injected via JS -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- User Feedback Logs -->
+            <div class="glass-card admin-section-card">
+              <h3>Complain & Feedback Tickets</h3>
+              <div id="admin-feedback-list" class="feedback-tickets-list">
+                <!-- Injected via JS -->
+                <div class="empty-state">
+                  <i class="fa-regular fa-circle-check"></i>
+                  <p>No feedback or complaints submitted yet.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </main> <!-- End Workspace Frame -->
+    </div> <!-- End App Container -->
+  </div> <!-- End Desktop BG Wrapper -->
+
+  <!-- MODAL A: SHIFT LOGGING / EDIT FORM -->
+  <div id="modal-shift-log" class="modal-overlay">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h3 id="modal-shift-title">Log Shift Record</h3>
+        <button class="btn-close-modal" id="btn-close-shift-modal"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <form id="shift-log-form">
+          <input type="hidden" id="edit-shift-id">
+
+          <div class="form-group">
+            <label for="shift-project">Project Name</label>
+            <input type="text" id="shift-project" placeholder="e.g. Acme Commercial Shoot" required class="pill-input">
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="shift-status">Status</label>
+              <select id="shift-status" class="pill-select" required>
+                <option value="Booked">Booked</option>
+                <option value="Pencilled">Pencilled</option>
+                <option value="Paid">Paid</option>
+                <option value="Unavailable">Unavailable</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="shift-date">Shift Date</label>
+              <input type="date" id="shift-date" required class="pill-input">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="shift-rate-select">Link Standard Union Rate</label>
+            <select id="shift-rate-select" class="pill-select">
+              <option value="custom">Flat Rate (Custom Calculations)</option>
+              <!-- Predefined Rates injected by JS -->
+            </select>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="shift-call-time">Call Time</label>
+              <input type="time" id="shift-call-time" class="pill-input">
+            </div>
+            <div class="form-group">
+              <label for="shift-wrap-time">Wrap Time</label>
+              <input type="time" id="shift-wrap-time" class="pill-input">
+            </div>
+          </div>
+
+          <div class="form-checkbox-row">
+            <label class="calc-checkbox-container">
+              <input type="checkbox" id="shift-is-holiday">
+              <span class="checkmark"></span>
+              Public Holiday
+            </label>
+            <label class="calc-checkbox-container">
+              <input type="checkbox" id="shift-is-night">
+              <span class="checkmark"></span>
+              Night Shoot
+            </label>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="shift-gross">Gross Pay Amount (£)</label>
+              <input type="number" id="shift-gross" value="0.00" step="0.01" class="pill-input">
+            </div>
+            <div class="form-group">
+              <label for="shift-comm">Agency Commission (£)</label>
+              <input type="number" id="shift-comm" value="0.00" step="0.01" class="pill-input">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="shift-vat">VAT Pay (£)</label>
+              <input type="number" id="shift-vat" value="0.00" step="0.01" class="pill-input">
+            </div>
+            <div class="form-group">
+              <label for="shift-expenses">Shift Expenses (£)</label>
+              <input type="number" id="shift-expenses" value="0.00" step="0.01" class="pill-input">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="shift-expected-payment">Expected Payment Date</label>
+              <input type="date" id="shift-expected-payment" class="pill-input">
+            </div>
+            <div class="form-group">
+              <label for="shift-agency">Casting/Employer Agency</label>
+              <input type="text" id="shift-agency" placeholder="e.g. Rachel's People, Casting Collective" list="agency-datalist" class="pill-input">
+              <datalist id="agency-datalist"></datalist>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="shift-notes">Notes</label>
+            <textarea id="shift-notes" placeholder="Notes regarding overtime, travel details, etc." class="pill-textarea"></textarea>
+          </div>
+
+          <div class="net-display-card">
+            <span>Calculated Net Pay:</span>
+            <strong id="shift-net-display">£0.00</strong>
+          </div>
+
+          <div class="modal-form-actions">
+            <button type="button" id="btn-delete-shift" class="btn-delete hidden">
+              <i class="fa-regular fa-trash-can"></i> Delete
+            </button>
+            <button type="submit" class="btn-submit-shift">Save Shift</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL B: PENDING PAYMENTS SHEET LIST -->
+  <div id="modal-pending-payments" class="modal-overlay">
+    <div class="modal-sheet">
+      <div class="modal-header">
+        <h3>Pending Payments</h3>
+        <button class="btn-close-modal" id="btn-close-pending-modal"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body scrollable-body">
+        <p class="sheet-desc">View days awaiting payment by date, project name, and net earnings.</p>
+        
+        <div class="table-card">
+          <table class="pending-table">
+            <thead>
+              <tr>
+                <th>Date worked</th>
+                <th>Project name</th>
+                <th class="text-right">Net Earnings</th>
+              </tr>
+            </thead>
+            <tbody id="pending-table-body">
+              <!-- Injected by JS -->
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pending-summary-bar">
+          <span id="pending-count-label">3 shifts awaiting payment</span>
+          <div class="total">
+            <span>Total:</span>
+            <strong id="pending-sum-label">£ 595.50</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="app.js"></script>
+</body>
+</html>
