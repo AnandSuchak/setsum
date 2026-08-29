@@ -1,7 +1,8 @@
 const path = require('path');
 const crypto = require('crypto');
 
-const usePostgres = !!process.env.DATABASE_URL;
+const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL || process.env.POSTGRES_PRISMA_URL;
+const usePostgres = !!connectionString;
 
 let sqliteDb = null;
 let pgPool = null;
@@ -10,12 +11,12 @@ let pgPool = null;
 if (usePostgres) {
   const { Pool } = require('pg');
   pgPool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: connectionString,
     ssl: { rejectUnauthorized: false } // Required for Supabase / Vercel
   });
 } else {
   if (process.env.VERCEL) {
-    throw new Error("Missing DATABASE_URL environment variable. SQLite is not supported in Vercel's serverless environment. Please add DATABASE_URL in your Vercel Project Settings.");
+    throw new Error("Missing database connection string. Please configure DATABASE_URL or link Supabase in your Vercel Project Settings.");
   }
   const sqlite3 = require('sqlite3').verbose();
   const dbPath = path.join(__dirname, '../data/setsum.db');
