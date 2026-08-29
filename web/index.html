@@ -762,6 +762,59 @@
     </div>
   </div>
 
+  <!-- 3. FLOATING AI ASSISTANT CHAT & VOICE WIDGET -->
+  <div id="ai-chat-widget" class="ai-chat-widget">
+    <!-- Floating Action Button (FAB) -->
+    <button id="btn-toggle-chat" class="btn-toggle-chat" title="Toggle AI Assistant">
+      <i class="fa-solid fa-robot"></i>
+      <span class="pulse-ring"></span>
+    </button>
+
+    <!-- Chat Container Window -->
+    <div id="chat-window" class="chat-window hidden">
+      <div class="chat-header">
+        <div class="chat-header-info">
+          <i class="fa-solid fa-robot header-bot-icon"></i>
+          <div>
+            <h4>SetSum AI Assistant</h4>
+            <span class="status-indicator">Online</span>
+          </div>
+        </div>
+        <button id="btn-close-chat" class="btn-close-chat" title="Close"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <!-- Scrollable Message Log -->
+      <div id="chat-messages" class="chat-messages">
+        <div class="message bot">
+          <div class="message-bubble">
+            Hello! I am your SetSum AI Assistant. You can chat with me or use the microphone button to log new shifts, record business expenses, view your pending payments, or compute your tax return! How can I help you today?
+          </div>
+        </div>
+      </div>
+
+      <!-- Typing Indicator -->
+      <div id="chat-typing-indicator" class="chat-typing-indicator hidden">
+        <span></span><span></span><span></span>
+      </div>
+
+      <!-- Voice Status bar -->
+      <div id="chat-voice-status" class="chat-voice-status hidden">
+        <i class="fa-solid fa-microphone"></i> <span id="voice-status-text">Listening...</span>
+      </div>
+
+      <!-- Message Input Row -->
+      <div class="chat-input-row">
+        <button id="btn-chat-mic" class="btn-chat-mic" title="Speak Voice Command">
+          <i class="fa-solid fa-microphone"></i>
+        </button>
+        <input type="text" id="chat-input" placeholder="Type a message or speak..." autocomplete="off">
+        <button id="btn-chat-send" class="btn-chat-send" title="Send Message">
+          <i class="fa-solid fa-paper-plane"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Scripts -->
   <script src="app.js"></script>
 </body>

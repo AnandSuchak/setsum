@@ -200,6 +200,266 @@ app.get('/api/auth/me', authenticate, (req, res) => {
   res.json({ user: req.user });
 });
 
+// AI Chat Endpoint with Gemini Function Calling (Voice/Text)
+app.post('/api/chat', authenticate, async (req, res) => {
+  const { message } = req.body;
+  const userId = req.user.id;
+
+  if (!message) {
+    return res.status(400).json({ error: 'Message query is required' });
+  }
+
+  // Safety fallback if API key is not configured in environment
+  if (!process.env.GEMINI_API_KEY) {
+    return res.json({
+      reply: "⚠️ The GEMINI_API_KEY environment variable is not configured. Please add it to your Vercel Project Settings to activate the AI Chat Assistant!",
+      refreshRequired: false
+    });
+  }
+
+  try {
+    const systemPrompt = `You are the SetSum AI Assistant, a helpful and professional companion for the SetSum freelance tracking SaaS platform. You help freelancers log shifts, track business expenses, audit outstanding payouts, and compute tax totals. You are talking to user ID: ${userId} (Email: ${req.user.email}).
+
+You have access to database tools. Use them to help the user query or update their shifts and expenses.
+* When asked to log a shift, call the 'log_new_shift' tool. Default status is 'Booked' if not specified. Convert inputs to numbers and formatted dates.
+* When asked to log an expense, call the 'log_expense' tool. Convert category and amount.
+* When asked to audit pending payouts, call the 'get_pending_payments' tool.
+* When asked about earnings, profits, or taxes, call the 'generate_tax_summary' tool.
+
+Always communicate politely. Respond concisely and format currency figures clearly in British Pounds (e.g. £125.50).`;
+
+    // Define tools
+    const tools = [
+      {
+        functionDeclarations: [
+          {
+            name: "get_pending_payments",
+            description: "Queries the database for pending/unpaid shifts and total net earnings outstanding."
+          },
+          {
+            name: "log_expense",
+            description: "Logs a business expense. All parameters are required.",
+            parameters: {
+              type: "OBJECT",
+              properties: {
+                category: { type: "STRING", description: "Expense category (e.g. Travel, Meals, Wardrobe, Gear)" },
+                amount: { type: "NUMBER", description: "Decimal amount spent" },
+                date_incurred: { type: "STRING", description: "The date of the expense (format YYYY-MM-DD)" }
+              },
+              required: ["category", "amount", "date_incurred"]
+            }
+          },
+          {
+            name: "log_new_shift",
+            description: "Logs a new shift. Automatically calculates net pay using user commission rate.",
+            parameters: {
+              type: "OBJECT",
+              properties: {
+                project_name: { type: "STRING", description: "Name of the shoot or booking" },
+                shift_date: { type: "STRING", description: "Date of the shift (format YYYY-MM-DD)" },
+                status: { type: "STRING", description: "Status: Pencilled, Booked, Paid, or Unavailable" },
+                gross_earnings: { type: "NUMBER", description: "Gross daily base payment rate" },
+                agency_name: { type: "STRING", description: "Optional name of the casting agency" }
+              },
+              required: ["project_name", "shift_date", "status", "gross_earnings"]
+            }
+          },
+          {
+            name: "generate_tax_summary",
+            description: "Generates aggregated gross earnings, total expenses, and final net profit for a date range.",
+            parameters: {
+              type: "OBJECT",
+              properties: {
+                start_date: { type: "STRING", description: "Start date of date range (format YYYY-MM-DD)" },
+                end_date: { type: "STRING", description: "End date of date range (format YYYY-MM-DD)" }
+              },
+              required: ["start_date", "end_date"]
+            }
+          }
+        ]
+      }
+    ];
+
+    // Helper to send request to Gemini REST API
+    async function callGemini(contents) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents,
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          tools
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Gemini API returned error ${response.status}: ${errorText}`);
+      }
+
+      return await response.json();
+    }
+
+    // Initialize conversation contents
+    const contents = [
+      {
+        role: "user",
+        parts: [{ text: message }]
+      }
+    ];
+
+    // 1. Call Gemini
+    const geminiRes = await callGemini(contents);
+    const candidate = geminiRes.candidates?.[0];
+    const modelContent = candidate?.content;
+    const parts = modelContent?.parts || [];
+    const functionCall = parts.find(p => p.functionCall)?.functionCall;
+
+    let refreshRequired = false;
+
+    // 2. Intercept and execute Function Call if requested
+    if (functionCall) {
+      const { name, args } = functionCall;
+      let toolResult = null;
+
+      try {
+        if (name === "get_pending_payments") {
+          const pending = await db.all(
+            'SELECT project_name, shift_date, status, net_earnings FROM shifts WHERE user_id = ? AND status != ? ORDER BY shift_date ASC',
+            [userId, 'Paid']
+          );
+          const totalOutstanding = pending.reduce((sum, s) => sum + parseFloat(s.net_earnings), 0);
+          toolResult = {
+            pending_shifts_count: pending.length,
+            total_outstanding_net: totalOutstanding,
+            items: pending.map(s => ({
+              project_name: s.project_name,
+              date: s.shift_date,
+              status: s.status,
+              net_earnings: s.net_earnings
+            }))
+          };
+        } 
+        else if (name === "log_expense") {
+          const expenseId = crypto.randomUUID();
+          await db.run(
+            'INSERT INTO expenses (id, user_id, category, amount, date_incurred) VALUES (?, ?, ?, ?, ?)',
+            [expenseId, userId, args.category, args.amount, args.date_incurred]
+          );
+          toolResult = {
+            success: true,
+            message: "Expense logged successfully",
+            expense_id: expenseId,
+            category: args.category,
+            amount: args.amount,
+            date: args.date_incurred
+          };
+          refreshRequired = true;
+        } 
+        else if (name === "log_new_shift") {
+          // Resolve agency
+          let agency_id = null;
+          if (args.agency_name) {
+            const existing = await db.get('SELECT id FROM agencies WHERE name = ?', [args.agency_name]);
+            if (existing) {
+              agency_id = existing.id;
+            } else {
+              agency_id = crypto.randomUUID();
+              await db.run('INSERT INTO agencies (id, name, user_id) VALUES (?, ?, ?)', [agency_id, args.agency_name, userId]);
+            }
+          }
+
+          // Calculate commission & net earnings
+          const user = await db.get('SELECT default_commission_rate FROM users WHERE id = ?', [userId]);
+          const commPct = user && user.default_commission_rate !== undefined ? user.default_commission_rate : 20.00;
+          const commission = args.gross_earnings * (commPct / 100);
+          const net = args.gross_earnings - commission;
+
+          const shiftId = crypto.randomUUID();
+          await db.run(
+            `INSERT INTO shifts (id, user_id, project_name, status, shift_date, gross_earnings, agency_commission, net_earnings, agency_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [shiftId, userId, args.project_name, args.status, args.shift_date, args.gross_earnings, commission, net, agency_id]
+          );
+
+          toolResult = {
+            success: true,
+            message: "Shift logged successfully",
+            shift_id: shiftId,
+            project_name: args.project_name,
+            status: args.status,
+            date: args.shift_date,
+            gross: args.gross_earnings,
+            commission: commission,
+            net: net
+          };
+          refreshRequired = true;
+        } 
+        else if (name === "generate_tax_summary") {
+          const shifts = await db.all(
+            'SELECT gross_earnings, agency_commission, vat, net_earnings FROM shifts WHERE user_id = ? AND shift_date >= ? AND shift_date <= ?',
+            [userId, args.start_date, args.end_date]
+          );
+          const expenses = await db.all(
+            'SELECT amount FROM expenses WHERE user_id = ? AND date_incurred >= ? AND date_incurred <= ?',
+            [userId, args.start_date, args.end_date]
+          );
+
+          const gross = shifts.reduce((sum, s) => sum + parseFloat(s.gross_earnings), 0);
+          const comm = shifts.reduce((sum, s) => sum + parseFloat(s.agency_commission), 0);
+          const vatVal = shifts.reduce((sum, s) => sum + parseFloat(s.vat), 0);
+          const netEarnings = shifts.reduce((sum, s) => sum + parseFloat(s.net_earnings), 0);
+          const totalExp = expenses.reduce((sum, s) => sum + parseFloat(s.amount), 0);
+          const netProfit = netEarnings - totalExp;
+
+          toolResult = {
+            start_date: args.start_date,
+            end_date: args.end_date,
+            gross_earnings: gross,
+            agency_commissions: comm,
+            vat_paid: vatVal,
+            total_expenses: totalExp,
+            net_profit: netProfit,
+            shifts_count: shifts.length,
+            expenses_count: expenses.length
+          };
+        }
+      } catch (dbErr) {
+        console.error('[AI Assistant] Tool Database Execution Error:', dbErr);
+        toolResult = { error: dbErr.message };
+      }
+
+      // Add Model's decision and the Tool's result to the conversational history
+      contents.push(modelContent);
+      contents.push({
+        role: "function",
+        parts: [
+          {
+            functionResponse: {
+              name,
+              response: toolResult
+            }
+          }
+        ]
+      });
+
+      // 3. Make second request to Gemini to get the conversational response
+      const followUpRes = await callGemini(contents);
+      const finalReply = followUpRes.candidates?.[0]?.content?.parts?.[0]?.text || "I have processed the request.";
+      return res.json({ reply: finalReply, refreshRequired });
+    }
+
+    // If Gemini didn't call a function, just return its text answer
+    const directReply = parts.find(p => p.text)?.text || "I'm sorry, I couldn't process that request.";
+    res.json({ reply: directReply, refreshRequired: false });
+
+  } catch (err) {
+    console.error('[AI Assistant Error]:', err);
+    res.status(500).json({ error: 'Failed to communicate with AI Assistant.' });
+  }
+});
+
 // --- PAY RATES ENDPOINTS ---
 
 app.get('/api/rates', async (req, res) => {

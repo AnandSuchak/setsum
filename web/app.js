@@ -1323,3 +1323,142 @@ if (btnToggleSidebar && appSidebar) {
 
 // Initial load check
 checkAuth();
+
+// ==========================================================================
+// FLOATING AI ASSISTANT CHAT & VOICE CONTROLLER
+// ==========================================================================
+
+(function initAiAssistant() {
+  const elements = {
+    btnToggle: document.getElementById('btn-toggle-chat'),
+    window: document.getElementById('chat-window'),
+    btnClose: document.getElementById('btn-close-chat'),
+    messages: document.getElementById('chat-messages'),
+    typing: document.getElementById('chat-typing-indicator'),
+    voiceStatus: document.getElementById('chat-voice-status'),
+    voiceText: document.getElementById('voice-status-text'),
+    btnMic: document.getElementById('btn-chat-mic'),
+    input: document.getElementById('chat-input'),
+    btnSend: document.getElementById('btn-chat-send')
+  };
+
+  if (!elements.btnToggle) return;
+
+  let isRecording = false;
+  let recognition = null;
+
+  // Toggle Chat window
+  elements.btnToggle.addEventListener('click', () => {
+    const isHidden = elements.window.classList.toggle('hidden');
+    if (!isHidden) {
+      elements.input.focus();
+      elements.messages.scrollTop = elements.messages.scrollHeight;
+    }
+  });
+
+  elements.btnClose.addEventListener('click', () => {
+    elements.window.classList.add('hidden');
+  });
+
+  // Append a message to the chat container
+  function appendMessage(role, text) {
+    const msgDiv = document.createElement('div');
+    msgDiv.classList.add('message', role);
+    
+    const bubble = document.createElement('div');
+    bubble.classList.add('message-bubble');
+    bubble.innerText = text;
+    
+    msgDiv.appendChild(bubble);
+    elements.messages.appendChild(msgDiv);
+    elements.messages.scrollTop = elements.messages.scrollHeight;
+  }
+
+  // Send message function
+  async function sendMessage() {
+    const text = elements.input.value.trim();
+    if (!text) return;
+
+    appendMessage('user', text);
+    elements.input.value = '';
+
+    elements.typing.classList.remove('hidden');
+    elements.messages.scrollTop = elements.messages.scrollHeight;
+
+    try {
+      const data = await apiCall('/api/chat', {
+        method: 'POST',
+        body: JSON.stringify({ message: text })
+      });
+
+      elements.typing.classList.add('hidden');
+      appendMessage('bot', data.reply);
+
+      // Trigger automatic UI refresh if database contents were modified
+      if (data.refreshRequired) {
+        console.log('[AI Assistant] Database modified. Refreshing UI cache...');
+        await loadInitialData();
+      }
+    } catch (err) {
+      elements.typing.classList.add('hidden');
+      appendMessage('bot', `Sorry, I encountered an error: ${err.message}`);
+    }
+  }
+
+  // Send bindings
+  elements.btnSend.addEventListener('click', sendMessage);
+  elements.input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      sendMessage();
+    }
+  });
+
+  // Web Speech API Voice Recognition setup
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'en-GB';
+
+    recognition.onstart = () => {
+      isRecording = true;
+      elements.btnMic.classList.add('recording');
+      elements.voiceStatus.classList.remove('hidden');
+      elements.voiceText.innerText = "Listening...";
+      elements.messages.scrollTop = elements.messages.scrollHeight;
+    };
+
+    recognition.onresult = (e) => {
+      const transcript = e.results[0][0].transcript;
+      elements.input.value = transcript;
+      // Auto-submit after voice input
+      sendMessage();
+    };
+
+    recognition.onerror = (e) => {
+      console.error('Speech recognition error:', e.error);
+      elements.voiceText.innerText = `Error: ${e.error}`;
+      setTimeout(() => {
+        elements.voiceStatus.classList.add('hidden');
+      }, 2000);
+    };
+
+    recognition.onend = () => {
+      isRecording = false;
+      elements.btnMic.classList.remove('recording');
+      elements.voiceStatus.classList.add('hidden');
+    };
+
+    elements.btnMic.addEventListener('click', () => {
+      if (isRecording) {
+        recognition.stop();
+      } else {
+        recognition.start();
+      }
+    });
+  } else {
+    // Hide mic button if browser doesn't support Web Speech API
+    elements.btnMic.style.display = 'none';
+  }
+})();
