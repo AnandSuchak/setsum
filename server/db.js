@@ -14,6 +14,9 @@ if (usePostgres) {
     ssl: { rejectUnauthorized: false } // Required for Supabase / Vercel
   });
 } else {
+  if (process.env.VERCEL) {
+    throw new Error("Missing DATABASE_URL environment variable. SQLite is not supported in Vercel's serverless environment. Please add DATABASE_URL in your Vercel Project Settings.");
+  }
   const sqlite3 = require('sqlite3').verbose();
   const dbPath = path.join(__dirname, '../data/setsum.db');
   sqliteDb = new sqlite3.Database(dbPath);
