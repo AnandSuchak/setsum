@@ -1,9 +1,24 @@
-const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const crypto = require('crypto');
 
-const dbPath = path.join(__dirname, '../data/setsum.db');
-const db = new sqlite3.Database(dbPath);
+const usePostgres = !!process.env.DATABASE_URL;
+
+let sqliteDb = null;
+let pgPool = null;
+
+// Initialize Database connection
+if (usePostgres) {
+  const { Pool } = require('pg');
+  pgPool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false } // Required for Supabase / Vercel
+  });
+} else {
+  const sqlite3 = require('sqlite3').verbose();
+  const dbPath = path.join(__dirname, '../data/setsum.db');
+  sqliteDb = new sqlite3.Database(dbPath);
+  sqliteDb.run('PRAGMA foreign_keys = ON;');
+}
 
 // Secure password hashing helper (PBKDF2 with unique cryptographic salt per user)
 function hashPassword(password) {
@@ -24,52 +39,125 @@ function verifyPassword(password, storedPasswordHash) {
   }
 }
 
-// Enable foreign keys
-db.run('PRAGMA foreign_keys = ON;');
+// Helper to convert SQLite ? to PostgreSQL $1, $2, ...
+function convertSql(sql) {
+  if (!usePostgres) return sql;
+  let index = 1;
+  return sql.replace(/\?/g, () => `$${index++}`);
+}
 
 // Helper to run query and return Promise
 const run = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) reject(err);
-      else resolve({ id: this.lastID, changes: this.changes });
+  if (usePostgres) {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const converted = convertSql(sql);
+        const res = await pgPool.query(converted, params);
+        resolve({ id: res.rows[0]?.id || null, changes: res.rowCount });
+      } catch (err) {
+        reject(err);
+      }
     });
-  });
+  } else {
+    return new Promise((resolve, reject) => {
+      sqliteDb.run(sql, params, function (err) {
+        if (err) reject(err);
+        else resolve({ id: this.lastID, changes: this.changes });
+      });
+    });
+  }
 };
 
 // Helper to get single row
 const get = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) reject(err);
-      else resolve(row);
+  if (usePostgres) {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const converted = convertSql(sql);
+        const res = await pgPool.query(converted, params);
+        resolve(res.rows[0] || null);
+      } catch (err) {
+        reject(err);
+      }
     });
-  });
+  } else {
+    return new Promise((resolve, reject) => {
+      sqliteDb.get(sql, params, (err, row) => {
+        if (err) reject(err);
+        else resolve(row);
+      });
+    });
+  }
 };
 
 // Helper to get all rows
 const all = (sql, params = []) => {
-  return new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) reject(err);
-      else resolve(rows);
+  if (usePostgres) {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const converted = convertSql(sql);
+        const res = await pgPool.query(converted, params);
+        resolve(res.rows);
+      } catch (err) {
+        reject(err);
+      }
     });
-  });
+  } else {
+    return new Promise((resolve, reject) => {
+      sqliteDb.all(sql, params, (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      });
+    });
+  }
 };
 
 // Helper to run transactions or sequence
 const exec = (sql) => {
-  return new Promise((resolve, reject) => {
-    db.exec(sql, (err) => {
-      if (err) reject(err);
-      else resolve();
+  if (usePostgres) {
+    return new Promise(async (resolve, reject) => {
+      try {
+        // Postgres doesn't support PRAGMA foreign_keys, so let's ignore it if it is PRAGMA
+        if (sql.trim().toUpperCase().startsWith('PRAGMA')) {
+          resolve();
+          return;
+        }
+        await pgPool.query(sql);
+        resolve();
+      } catch (err) {
+        reject(err);
+      }
     });
-  });
+  } else {
+    return new Promise((resolve, reject) => {
+      sqliteDb.exec(sql, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  }
 };
 
 // Initialize DB schemas
 async function initDb() {
-  // Create tables
+  if (usePostgres) {
+    // On Supabase, the tables are already created via the SQL Editor, 
+    // so we don't need to run DDL creation scripts here to avoid conflicts.
+    // However, let's verify if they exist or just seed the admin.
+    const adminEmail = 'admin@setsum.co.uk';
+    const existingAdmin = await get('SELECT * FROM users WHERE email = $1', [adminEmail]);
+    if (!existingAdmin) {
+      const adminId = crypto.randomUUID();
+      const passwordHash = hashPassword('admin123');
+      await run(
+        `INSERT INTO users (id, email, password_hash, role) VALUES ($1, $2, $3, $4)`,
+        [adminId, adminEmail, passwordHash, 'admin']
+      );
+    }
+    return;
+  }
+
+  // SQLite Initialization
   await exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -276,7 +364,6 @@ module.exports = {
   all,
   exec,
   initDb,
-  db,
   hashPassword,
   verifyPassword,
 };

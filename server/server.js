@@ -686,11 +686,18 @@ app.get('/*splat', (req, res) => {
 const PORT = process.env.PORT || 3000;
 db.initDb()
   .then(() => {
-    app.listen(PORT, () => {
-      console.log(`[SetSum Backend] Running at http://localhost:${PORT}`);
-    });
+    // Only listen if not running in Vercel Serverless environment
+    if (!process.env.VERCEL) {
+      app.listen(PORT, () => {
+        console.log(`[SetSum Backend] Running at http://localhost:${PORT}`);
+      });
+    }
   })
   .catch((err) => {
     console.error('[SetSum Backend] Failed to initialize DB:', err);
-    process.exit(1);
+    if (!process.env.VERCEL) {
+      process.exit(1);
+    }
   });
+
+module.exports = app;
