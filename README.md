@@ -25,4 +25,4 @@ npm test
 
 ## Deployment
 This project is configured for serverless deployment on Vercel connected to a Supabase PostgreSQL database.
-Ensure you have configured `DATABASE_URL` in your Vercel Project Settings.
+Ensure you have configured `DATABASE_URL` (or `POSTGRES_URL`) and `GEMINI_API_KEY` in your Vercel Project Settings.
