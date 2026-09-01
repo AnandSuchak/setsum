@@ -145,9 +145,13 @@ const exec = (sql) => {
 // Initialize DB schemas
 async function initDb() {
   if (usePostgres) {
-    // On Supabase, the tables are already created via the SQL Editor, 
-    // so we don't need to run DDL creation scripts here to avoid conflicts.
-    // However, let's verify if they exist or just seed the admin.
+    // Migration: ensure last_active_time exists on Supabase Postgres
+    try {
+      await run('ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS last_active_time TEXT');
+    } catch (migErr) {
+      console.warn('[Postgres Migration Warning]:', migErr.message);
+    }
+
     const adminEmail = 'admin@setsum.co.uk';
     const existingAdmin = await get('SELECT * FROM users WHERE email = $1', [adminEmail]);
     if (!existingAdmin) {

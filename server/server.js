@@ -48,19 +48,23 @@ async function authenticate(req, res, next) {
     };
 
     // 5-Minute Inactivity Session Expiration Check
-    const now = Date.now();
-    const FIVE_MINUTES_MS = 5 * 60 * 1000;
-    if (session.last_active_time && (now - Number(session.last_active_time)) > FIVE_MINUTES_MS) {
-      await db.run('DELETE FROM user_sessions WHERE id = ?', [token]);
-      return res.status(401).json({ error: 'Session expired due to 5 minutes of inactivity' });
-    }
+    try {
+      const now = Date.now();
+      const FIVE_MINUTES_MS = 5 * 60 * 1000;
+      if (session.last_active_time && (now - Number(session.last_active_time)) > FIVE_MINUTES_MS) {
+        await db.run('DELETE FROM user_sessions WHERE id = ?', [token]);
+        return res.status(401).json({ error: 'Session expired due to 5 minutes of inactivity' });
+      }
 
-    // Track active usage & update last_active_time timestamp
-    const today = new Date().toISOString().split('T')[0];
-    await db.run(
-      'UPDATE user_sessions SET last_active_date = ?, last_active_time = ? WHERE id = ?',
-      [today, now, token]
-    );
+      // Track active usage & update last_active_time timestamp
+      const today = new Date().toISOString().split('T')[0];
+      await db.run(
+        'UPDATE user_sessions SET last_active_date = ?, last_active_time = ? WHERE id = ?',
+        [today, String(now), token]
+      );
+    } catch (sessionCheckErr) {
+      console.warn('[Session Expiration Check Warning]:', sessionCheckErr.message);
+    }
 
     next();
   } catch (err) {
