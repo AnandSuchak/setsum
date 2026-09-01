@@ -200,6 +200,21 @@ app.get('/api/auth/me', authenticate, (req, res) => {
   res.json({ user: req.user });
 });
 
+// Logout endpoint (destroys active user session)
+app.post('/api/auth/logout', authenticate, async (req, res) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    const sessionToken = authHeader && authHeader.split(' ')[1];
+    if (sessionToken) {
+      await db.run('DELETE FROM user_sessions WHERE id = ?', [sessionToken]);
+    }
+    res.json({ message: 'Logged out successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error during logout' });
+  }
+});
+
 // AI Chat Endpoint with Gemini Function Calling (Voice/Text)
 app.post('/api/chat', authenticate, async (req, res) => {
   const { message } = req.body;

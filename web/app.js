@@ -214,11 +214,19 @@ async function checkAuth() {
   }
 }
 
-function logout() {
-  localStorage.removeItem('setsum_token');
-  token = '';
-  currentUser = null;
-  showScreen('auth');
+async function logout() {
+  try {
+    if (token) {
+      await apiCall('/api/auth/logout', { method: 'POST' });
+    }
+  } catch (err) {
+    console.error('Logout error:', err);
+  } finally {
+    localStorage.removeItem('setsum_token');
+    token = '';
+    currentUser = null;
+    showScreen('auth');
+  }
 }
 
 function showScreen(screen) {
