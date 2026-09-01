@@ -579,10 +579,10 @@ async function smartLocalFallback(message, userId) {
 
     // Clean project name
     let projectName = message
-      .replace(/log|create|add|new|shift|shoot|booking|pencilled|booked|gross|pay|£|\$|tomorrow|today|from|to|am|pm|\d{1,2}(:\d{2})?/gi, '')
+      .replace(/log|logged|ged|create|add|new|for|shift|shoot|booking|pencilled|booked|gross|pay|£|\$|tomorrow|today|from|to|am|pm|\d{1,2}(:\d{2})?/gi, '')
       .replace(/[^a-zA-Z0-9\s]/g, '')
       .trim();
-    if (!projectName || projectName.length < 2) {
+    if (!projectName || projectName.length < 2 || projectName.toLowerCase() === 'a ged' || projectName.toLowerCase() === 'a ged for') {
       projectName = 'Freelance Booking';
     }
 
@@ -600,7 +600,8 @@ async function smartLocalFallback(message, userId) {
 
     return {
       reply: `Logged new shift "${projectName}" for ${shiftDate} (${callTime} - ${wrapTime})!\n• Gross: £${gross.toFixed(2)}\n• Net (after ${commPct}% comm): £${net.toFixed(2)}`,
-      refreshRequired: true
+      refreshRequired: true,
+      targetDate: shiftDate
     };
   }
 

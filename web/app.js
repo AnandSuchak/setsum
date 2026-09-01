@@ -1427,6 +1427,14 @@ checkAuth();
       // Trigger automatic UI refresh if database contents were modified
       if (data.refreshRequired) {
         console.log('[AI Assistant] Database modified. Refreshing UI cache...');
+        if (data.targetDate) {
+          selectedDate = data.targetDate;
+          const targetD = new Date(data.targetDate);
+          if (!isNaN(targetD.getTime())) {
+            activeCalendarMonth = targetD.getMonth();
+            activeCalendarYear = targetD.getFullYear();
+          }
+        }
         await loadInitialData();
       }
     } catch (err) {
