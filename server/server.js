@@ -526,14 +526,65 @@ async function smartLocalFallback(message, userId) {
     };
   }
 
-  // 2. Log Shift (e.g. "log shift commercial 300")
-  if (lower.includes('shift') || lower.includes('shoot') || lower.includes('booking') || lower.includes('log shift')) {
+  // 2. Log Shift Intent Recognition & Natural Language Time/Date Parsing
+  const isShiftIntent = lower.includes('shift') || 
+                        lower.includes('shoot') || 
+                        lower.includes('booking') || 
+                        lower.includes('log') || 
+                        lower.includes('create') || 
+                        lower.includes('add') || 
+                        lower.includes('new') || 
+                        lower.includes('tomorrow') || 
+                        lower.includes('today') || 
+                        lower.includes('pencilled') || 
+                        lower.includes('booked') || 
+                        lower.includes('work') || 
+                        lower.includes('pm') || 
+                        lower.includes('am') || 
+                        lower.includes('to');
+
+  if (isShiftIntent && !lower.includes('expense') && !lower.includes('spent') && !lower.includes('pending') && !lower.includes('tax')) {
+    // Resolve Date (Tomorrow vs Today vs Specific date)
+    let shiftDate = new Date().toISOString().split('T')[0];
+    if (lower.includes('tomorrow')) {
+      const tmrw = new Date();
+      tmrw.setDate(tmrw.getDate() + 1);
+      shiftDate = tmrw.toISOString().split('T')[0];
+    }
+
+    // Resolve Numbers / Pay
     const numbers = message.match(/\d+(\.\d+)?/g);
-    const gross = numbers ? parseFloat(numbers[0]) : 150;
-    const today = new Date().toISOString().split('T')[0];
-    
-    // Extract a clean project name
-    const projectName = message.replace(/log|shift|pencilled|booked|gross|pay|£|\$|\d+(\.\d+)?/gi, '').trim() || 'Freelance Shift';
+    let gross = 150.00;
+    if (numbers && numbers.length > 0) {
+      const payMatch = numbers.find(n => parseFloat(n) >= 20 && parseFloat(n) <= 5000);
+      if (payMatch) gross = parseFloat(payMatch);
+    }
+
+    // Resolve Times (e.g. "3 to 5:00 PM", "09:00 to 17:00")
+    let callTime = '09:00';
+    let wrapTime = '17:00';
+    const timeMatch = lower.match(/(\d{1,2}(:\d{2})?)\s*(am|pm)?\s*(to|-)\s*(\d{1,2}(:\d{2})?)\s*(am|pm)?/);
+    if (timeMatch) {
+      const [, start, , startAmpm, , end, , endAmpm] = timeMatch;
+      let startH = parseInt(start.split(':')[0], 10);
+      let endH = parseInt(end.split(':')[0], 10);
+      
+      const isPm = lower.includes('pm') || (endAmpm === 'pm');
+      if (isPm && startH < 12) startH += 12;
+      if (isPm && endH < 12) endH += 12;
+
+      callTime = `${String(startH).padStart(2, '0')}:${start.includes(':') ? start.split(':')[1] : '00'}`;
+      wrapTime = `${String(endH).padStart(2, '0')}:${end.includes(':') ? end.split(':')[1] : '00'}`;
+    }
+
+    // Clean project name
+    let projectName = message
+      .replace(/log|create|add|new|shift|shoot|booking|pencilled|booked|gross|pay|£|\$|tomorrow|today|from|to|am|pm|\d{1,2}(:\d{2})?/gi, '')
+      .replace(/[^a-zA-Z0-9\s]/g, '')
+      .trim();
+    if (!projectName || projectName.length < 2) {
+      projectName = 'Freelance Booking';
+    }
 
     const user = await db.get('SELECT default_commission_rate FROM users WHERE id = ?', [userId]);
     const commPct = user && user.default_commission_rate !== undefined ? user.default_commission_rate : 20.00;
@@ -542,13 +593,13 @@ async function smartLocalFallback(message, userId) {
 
     const shiftId = crypto.randomUUID();
     await db.run(
-      `INSERT INTO shifts (id, user_id, project_name, status, shift_date, gross_earnings, agency_commission, net_earnings)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [shiftId, userId, projectName, 'Booked', today, gross, comm, net]
+      `INSERT INTO shifts (id, user_id, project_name, status, shift_date, call_time, wrap_time, gross_earnings, agency_commission, net_earnings)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [shiftId, userId, projectName, 'Booked', shiftDate, callTime, wrapTime, gross, comm, net]
     );
 
     return {
-      reply: `Logged new shift "${projectName}" for ${today}!\n• Gross: £${gross.toFixed(2)}\n• Net (after ${commPct}% comm): £${net.toFixed(2)}`,
+      reply: `Logged new shift "${projectName}" for ${shiftDate} (${callTime} - ${wrapTime})!\n• Gross: £${gross.toFixed(2)}\n• Net (after ${commPct}% comm): £${net.toFixed(2)}`,
       refreshRequired: true
     };
   }
