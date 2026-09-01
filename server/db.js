@@ -178,6 +178,7 @@ async function initDb() {
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
       last_active_date TEXT NOT NULL,
+      last_active_time TEXT,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
@@ -252,6 +253,13 @@ async function initDb() {
       FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE SET NULL
     );
   `);
+
+  // Migration check: ensure last_active_time column exists in user_sessions
+  try {
+    await exec(`ALTER TABLE user_sessions ADD COLUMN last_active_time TEXT`);
+  } catch (err) {
+    // Column already exists, ignore
+  }
 
   // Seed default pay rates
   const ratesCount = await get('SELECT COUNT(*) as count FROM pay_rates');

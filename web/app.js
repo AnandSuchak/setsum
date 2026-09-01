@@ -208,13 +208,35 @@ async function checkAuth() {
 
     showScreen('app');
     await loadInitialData();
+    resetInactivityTimer();
   } catch (err) {
     console.error('Session validation failed:', err);
     logout();
   }
 }
 
+// 5-Minute Inactivity Auto-Logout Controller
+let inactivityTimer = null;
+const FIVE_MINUTES_MS = 5 * 60 * 1000;
+
+function resetInactivityTimer() {
+  clearTimeout(inactivityTimer);
+  if (token) {
+    inactivityTimer = setTimeout(() => {
+      console.log('Inactivity limit reached (5 mins). Auto-logging out...');
+      alert('You have been logged out due to 5 minutes of inactivity.');
+      logout();
+    }, FIVE_MINUTES_MS);
+  }
+}
+
+// Track mouse movement, typing, clicks, touches, and scrolling to reset timer
+['mousemove', 'keydown', 'click', 'touchstart', 'scroll'].forEach(evt => {
+  window.addEventListener(evt, resetInactivityTimer, { passive: true });
+});
+
 async function logout() {
+  clearTimeout(inactivityTimer);
   try {
     if (token) {
       await apiCall('/api/auth/logout', { method: 'POST' });

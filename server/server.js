@@ -47,14 +47,20 @@ async function authenticate(req, res, next) {
       tax_year_start: session.tax_year_start,
     };
 
-    // Track active usage: update last_active_date if it's a new day
-    const today = new Date().toISOString().split('T')[0];
-    if (session.last_active_date !== today) {
-      await db.run(
-        'UPDATE user_sessions SET last_active_date = ? WHERE id = ?',
-        [today, token]
-      );
+    // 5-Minute Inactivity Session Expiration Check
+    const now = Date.now();
+    const FIVE_MINUTES_MS = 5 * 60 * 1000;
+    if (session.last_active_time && (now - Number(session.last_active_time)) > FIVE_MINUTES_MS) {
+      await db.run('DELETE FROM user_sessions WHERE id = ?', [token]);
+      return res.status(401).json({ error: 'Session expired due to 5 minutes of inactivity' });
     }
+
+    // Track active usage & update last_active_time timestamp
+    const today = new Date().toISOString().split('T')[0];
+    await db.run(
+      'UPDATE user_sessions SET last_active_date = ?, last_active_time = ? WHERE id = ?',
+      [today, now, token]
+    );
 
     next();
   } catch (err) {
@@ -483,9 +489,114 @@ Always communicate politely. Respond concisely and format currency figures clear
 
   } catch (err) {
     console.error('[AI Assistant Error]:', err);
-    res.status(500).json({ error: 'Failed to communicate with AI Assistant.' });
+    try {
+      const fallback = await smartLocalFallback(message, userId);
+      return res.json(fallback);
+    } catch (fbErr) {
+      return res.json({
+        reply: `Hello! I am your SetSum AI Assistant. You can ask me to log shifts, record expenses, view pending payments, or calculate taxes!`,
+        refreshRequired: false
+      });
+    }
   }
 });
+
+// Smart Offline/Fallback AI Assistant Processor
+async function smartLocalFallback(message, userId) {
+  const lower = message.toLowerCase();
+
+  // 1. Pending Payments
+  if (lower.includes('pending') || lower.includes('unpaid') || lower.includes('due') || lower.includes('owes') || lower.includes('payout')) {
+    const pending = await db.all(
+      'SELECT project_name, shift_date, status, net_earnings FROM shifts WHERE user_id = ? AND status != ? ORDER BY shift_date ASC',
+      [userId, 'Paid']
+    );
+    const total = pending.reduce((sum, s) => sum + parseFloat(s.net_earnings), 0);
+    if (pending.length === 0) {
+      return { reply: "You currently have no pending payments! All your logged shifts are fully paid.", refreshRequired: false };
+    }
+    const itemsText = pending.map(s => `• ${s.project_name} (${s.shift_date}): £${parseFloat(s.net_earnings).toFixed(2)} [${s.status}]`).join('\n');
+    return {
+      reply: `You have ${pending.length} pending shift(s) awaiting payment totaling £${total.toFixed(2)}:\n\n${itemsText}`,
+      refreshRequired: false
+    };
+  }
+
+  // 2. Log Shift (e.g. "log shift commercial 300")
+  if (lower.includes('shift') || lower.includes('shoot') || lower.includes('booking') || lower.includes('log shift')) {
+    const numbers = message.match(/\d+(\.\d+)?/g);
+    const gross = numbers ? parseFloat(numbers[0]) : 150;
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Extract a clean project name
+    const projectName = message.replace(/log|shift|pencilled|booked|gross|pay|£|\$|\d+(\.\d+)?/gi, '').trim() || 'Freelance Shift';
+
+    const user = await db.get('SELECT default_commission_rate FROM users WHERE id = ?', [userId]);
+    const commPct = user && user.default_commission_rate !== undefined ? user.default_commission_rate : 20.00;
+    const comm = gross * (commPct / 100);
+    const net = gross - comm;
+
+    const shiftId = crypto.randomUUID();
+    await db.run(
+      `INSERT INTO shifts (id, user_id, project_name, status, shift_date, gross_earnings, agency_commission, net_earnings)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [shiftId, userId, projectName, 'Booked', today, gross, comm, net]
+    );
+
+    return {
+      reply: `Logged new shift "${projectName}" for ${today}!\n• Gross: £${gross.toFixed(2)}\n• Net (after ${commPct}% comm): £${net.toFixed(2)}`,
+      refreshRequired: true
+    };
+  }
+
+  // 3. Log Expense (e.g. "log expense travel 25")
+  if (lower.includes('expense') || lower.includes('spent') || lower.includes('bought')) {
+    const numbers = message.match(/\d+(\.\d+)?/g);
+    const amount = numbers ? parseFloat(numbers[0]) : 10;
+    const today = new Date().toISOString().split('T')[0];
+    const category = lower.includes('travel') ? 'Travel' : lower.includes('meal') ? 'Meals' : lower.includes('gear') ? 'Equipment' : 'General Business Expense';
+
+    const expenseId = crypto.randomUUID();
+    await db.run(
+      'INSERT INTO expenses (id, user_id, category, amount, date_incurred) VALUES (?, ?, ?, ?, ?)',
+      [expenseId, userId, category, amount, today]
+    );
+
+    return {
+      reply: `Logged business expense under "${category}" for £${amount.toFixed(2)} on ${today}.`,
+      refreshRequired: true
+    };
+  }
+
+  // 4. Tax Summary
+  if (lower.includes('tax') || lower.includes('summary') || lower.includes('profit') || lower.includes('earned')) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const yearStart = `${new Date().getFullYear()}-01-01`;
+    const shifts = await db.all(
+      'SELECT gross_earnings, agency_commission, net_earnings FROM shifts WHERE user_id = ? AND shift_date >= ? AND shift_date <= ?',
+      [userId, yearStart, todayStr]
+    );
+    const expenses = await db.all(
+      'SELECT amount FROM expenses WHERE user_id = ? AND date_incurred >= ? AND date_incurred <= ?',
+      [userId, yearStart, todayStr]
+    );
+
+    const gross = shifts.reduce((sum, s) => sum + parseFloat(s.gross_earnings), 0);
+    const netEarnings = shifts.reduce((sum, s) => sum + parseFloat(s.net_earnings), 0);
+    const totalExp = expenses.reduce((sum, s) => sum + parseFloat(s.amount), 0);
+    const netProfit = netEarnings - totalExp;
+
+    return {
+      reply: `Financial Summary (Year to Date):\n• Gross Earnings: £${gross.toFixed(2)}\n• Expenses Deducted: £${totalExp.toFixed(2)}\n• Net Profit: £${netProfit.toFixed(2)}`,
+      refreshRequired: false
+    };
+  }
+
+  return {
+    reply: "Hello! I am your SetSum AI Assistant. You can ask me to:\n• Check pending payments\n• Log a shift (e.g. 'log shift Commercial Shoot £250')\n• Log an expense (e.g. 'log expense Travel £15')\n• Compute your tax summary",
+    refreshRequired: false
+  };
+}
 
 // --- PAY RATES ENDPOINTS ---
 
