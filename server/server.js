@@ -509,7 +509,46 @@ Always communicate politely. Respond concisely and format currency figures clear
 async function smartLocalFallback(message, userId) {
   const lower = message.toLowerCase();
 
-  // 1. Pending Payments
+  // 1. List / Query Shifts Intent (e.g. "tell me list of tomorrow log", "show my shifts for tomorrow")
+  const isQueryIntent = lower.includes('list') || 
+                        lower.includes('show') || 
+                        lower.includes('tell') || 
+                        lower.includes('view') || 
+                        lower.includes('get') || 
+                        lower.includes('what') || 
+                        lower.includes('check');
+
+  if (isQueryIntent && !lower.includes('expense') && !lower.includes('pending') && !lower.includes('tax')) {
+    let targetDate = new Date().toISOString().split('T')[0];
+    const isTomorrow = lower.includes('tom') || lower.includes('tmr') || lower.includes('next day');
+    if (isTomorrow) {
+      const tmrw = new Date();
+      tmrw.setDate(tmrw.getDate() + 1);
+      targetDate = tmrw.toISOString().split('T')[0];
+    }
+
+    const shifts = await db.all(
+      'SELECT project_name, shift_date, call_time, wrap_time, status, gross_earnings, net_earnings FROM shifts WHERE user_id = ? AND shift_date = ? ORDER BY call_time ASC',
+      [userId, targetDate]
+    );
+
+    if (shifts.length === 0) {
+      return {
+        reply: `No shifts logged for ${targetDate}.`,
+        refreshRequired: true,
+        targetDate
+      };
+    }
+
+    const itemsText = shifts.map(s => `• ${s.project_name} (${s.call_time || '09:00'} - ${s.wrap_time || '17:00'}): £${parseFloat(s.net_earnings).toFixed(2)} [${s.status}]`).join('\n');
+    return {
+      reply: `Here are your logged shift(s) for ${targetDate}:\n\n${itemsText}`,
+      refreshRequired: true,
+      targetDate
+    };
+  }
+
+  // 2. Pending Payments
   if (lower.includes('pending') || lower.includes('unpaid') || lower.includes('due') || lower.includes('owes') || lower.includes('payout')) {
     const pending = await db.all(
       'SELECT project_name, shift_date, status, net_earnings FROM shifts WHERE user_id = ? AND status != ? ORDER BY shift_date ASC',
@@ -526,7 +565,7 @@ async function smartLocalFallback(message, userId) {
     };
   }
 
-  // 2. Log Shift Intent Recognition & Natural Language Time/Date Parsing
+  // 3. Log Shift Intent Recognition & Fuzzy Natural Language Time/Date Parsing
   const isShiftIntent = lower.includes('shift') || 
                         lower.includes('shoot') || 
                         lower.includes('booking') || 
@@ -534,7 +573,8 @@ async function smartLocalFallback(message, userId) {
                         lower.includes('create') || 
                         lower.includes('add') || 
                         lower.includes('new') || 
-                        lower.includes('tomorrow') || 
+                        lower.includes('tom') || 
+                        lower.includes('tmr') || 
                         lower.includes('today') || 
                         lower.includes('pencilled') || 
                         lower.includes('booked') || 
@@ -544,9 +584,10 @@ async function smartLocalFallback(message, userId) {
                         lower.includes('to');
 
   if (isShiftIntent && !lower.includes('expense') && !lower.includes('spent') && !lower.includes('pending') && !lower.includes('tax')) {
-    // Resolve Date (Tomorrow vs Today vs Specific date)
+    // Resolve Date with fuzzy matching (e.g. tommwo, tomorow, tmrw)
+    const isTomorrowMatch = lower.includes('tom') || lower.includes('tmr') || lower.includes('next day');
     let shiftDate = new Date().toISOString().split('T')[0];
-    if (lower.includes('tomorrow')) {
+    if (isTomorrowMatch) {
       const tmrw = new Date();
       tmrw.setDate(tmrw.getDate() + 1);
       shiftDate = tmrw.toISOString().split('T')[0];
@@ -560,7 +601,7 @@ async function smartLocalFallback(message, userId) {
       if (payMatch) gross = parseFloat(payMatch);
     }
 
-    // Resolve Times (e.g. "3 to 5:00 PM", "09:00 to 17:00")
+    // Resolve Times (e.g. "2-3", "3 to 5:00 PM", "09:00 to 17:00")
     let callTime = '09:00';
     let wrapTime = '17:00';
     const timeMatch = lower.match(/(\d{1,2}(:\d{2})?)\s*(am|pm)?\s*(to|-)\s*(\d{1,2}(:\d{2})?)\s*(am|pm)?/);
@@ -569,20 +610,26 @@ async function smartLocalFallback(message, userId) {
       let startH = parseInt(start.split(':')[0], 10);
       let endH = parseInt(end.split(':')[0], 10);
       
-      const isPm = lower.includes('pm') || (endAmpm === 'pm');
-      if (isPm && startH < 12) startH += 12;
-      if (isPm && endH < 12) endH += 12;
+      const isExplicitAm = startAmpm === 'am' || endAmpm === 'am';
+      const isExplicitPm = lower.includes('pm') || startAmpm === 'pm' || endAmpm === 'pm';
+      
+      if (!isExplicitAm && (isExplicitPm || startH < 8)) {
+        if (startH < 12) startH += 12;
+      }
+      if (!isExplicitAm && (isExplicitPm || endH < 8)) {
+        if (endH < 12) endH += 12;
+      }
 
       callTime = `${String(startH).padStart(2, '0')}:${start.includes(':') ? start.split(':')[1] : '00'}`;
       wrapTime = `${String(endH).padStart(2, '0')}:${end.includes(':') ? end.split(':')[1] : '00'}`;
     }
 
-    // Clean project name
+    // Clean project name with typo filters
     let projectName = message
-      .replace(/log|logged|ged|create|add|new|for|shift|shoot|booking|pencilled|booked|gross|pay|£|\$|tomorrow|today|from|to|am|pm|\d{1,2}(:\d{2})?/gi, '')
+      .replace(/log|logged|ged|create|add|new|tell|me|list|of|for|shift|shoot|booking|pencilled|booked|gross|pay|£|\$|tom[a-z]*|tmr[a-z]*|today|from|to|am|pm|\d{1,2}(:\d{2})?/gi, '')
       .replace(/[^a-zA-Z0-9\s]/g, '')
       .trim();
-    if (!projectName || projectName.length < 2 || projectName.toLowerCase() === 'a ged' || projectName.toLowerCase() === 'a ged for') {
+    if (!projectName || projectName.length < 2 || projectName.toLowerCase().startsWith('a mmwo') || projectName.toLowerCase().startsWith('a ged')) {
       projectName = 'Freelance Booking';
     }
 
