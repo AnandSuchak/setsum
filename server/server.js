@@ -280,12 +280,24 @@ Always communicate politely. Respond concisely and format currency figures clear
       }
     ];
 
-    // Helper to send request to Gemini REST API
+    // Helper to send request to Gemini REST API (supports legacy AIzaSy keys & new AQ... Auth keys)
     async function callGemini(contents) {
-      const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`;
+      const apiKey = process.env.GEMINI_API_KEY ? process.env.GEMINI_API_KEY.trim() : '';
+      const isLegacyKey = apiKey.startsWith('AIzaSy');
+      
+      const url = isLegacyKey 
+        ? `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`
+        : `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`;
+
+      const headers = {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+        'Authorization': `Bearer ${apiKey}`
+      };
+
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           contents,
           systemInstruction: { parts: [{ text: systemPrompt }] },
